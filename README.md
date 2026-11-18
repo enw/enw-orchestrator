@@ -11,8 +11,9 @@ as a controller; `eoctl` shares no code, daemon, or API with it.
 
 ## Status
 
-Slice 1 only. See [PROPOSAL.md](PROPOSAL.md) for the approved design and the
-full acceptance criteria.
+Slice 1 (CLI + worktree workers) and slice 2 (`board --watch` + key actions)
+are implemented. See [PROPOSAL.md](PROPOSAL.md) for the approved design and
+slice-1 acceptance criteria.
 
 ## Requirements
 
@@ -36,6 +37,7 @@ node dist/cli.js project add .
 node dist/cli.js spawn --name fix-tests --harness opencode --prompt "Fix the failing tests"
 node dist/cli.js spawn --name docs --harness pi --prompt-file ./prompt.md
 node dist/cli.js board
+node dist/cli.js board --watch            # in-place refresh + keyboard actions
 node dist/cli.js send s_ab12cd34 --message "Also update the changelog"
 node dist/cli.js session log s_ab12cd34 --follow
 node dist/cli.js session done s_ab12cd34
@@ -52,7 +54,7 @@ eoctl project ls
 eoctl spawn --name <name> --harness opencode|pi \
             --prompt <text>|--prompt-file <path> \
             [--project <id>] [--branch <branch>] [--model <model>]
-eoctl board [--json]
+eoctl board [--json] [--watch] [--interval <seconds>]
 eoctl session ls | get <id> [--json] | log <id> [--raw] [--follow] |
             done <id> | kill <id> | restore <id> | cleanup [--dry-run]
 eoctl send <id> --message <text>|--message-file <path>
@@ -98,7 +100,8 @@ These are deliberate and will not work in slice 1:
   fail-safe (auto-denied/cancelled) and visible only in `session log --raw`.
 - No steering of an in-flight turn, no automatic retry, and no auto-relaunch
   after a crash or reboot. Use `session restore` manually.
-- No `--watch` mode or interactive TUI.
+- No full-screen interactive TUI (multi-pane log/inbox, mouse, themes);
+  `board --watch` is the slice-2 in-place view only.
 - No `codex` adapter or generic command-template adapter.
 - No browser preview, mobile, cloud, automations, cues, or multi-repo
   workspaces.
@@ -107,6 +110,15 @@ These are deliberate and will not work in slice 1:
   the intended upgrade path.
 - `done` is human-declared; a harness exiting normally does not mark a session
   done. `kill` leaves the session in `error`.
+
+## Watch mode
+
+`eoctl board --watch` redraws the board in place (default every 1s, override
+with `--interval`). It requires a TTY; without one it exits 2 with a message.
+Keys: `j`/`k` or arrows to select, `m` to type a follow-up (Enter sends, Esc
+cancels), `d` done, `x` kill, `r` restore, `q`/Ctrl-C quit. Actions use the same
+state functions as the CLI commands. Raw mode and the cursor are restored on
+every exit path. Selection is tracked by session id so it survives lane changes.
 
 OpenCode runs against the shared service (no `--standalone`, no `--auto`);
 Pi sessions are pinned with an absolute `--session-dir` plus `--session-id`.
@@ -117,6 +129,8 @@ Pi sessions are pinned with an absolute `--session-dir` plus `--session-id`.
 npm test       # build + integration tests with fake harnesses
 ```
 
-Slice 1 acceptance was also verified with one real smoke run per harness: both
+Slice 1 acceptance was verified with one real smoke run per harness: both
 `opencode` and `pi` workers emitted parseable JSONL and left a commit in their
-own worktree, with the source repo untouched.
+own worktree, with the source repo untouched. Slice 2 was verified with a real
+PTY run: a follow-up typed in watch mode landed as a new worker commit, and the
+cursor was restored on quit.

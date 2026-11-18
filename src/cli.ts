@@ -1,25 +1,22 @@
 #!/usr/bin/env node
 import { Command } from 'commander'
 import { access, constants, readFile } from 'node:fs/promises'
-import { closeSync, openSync } from 'node:fs'
-import { spawn } from 'node:child_process'
 import path from 'node:path'
+import { killSession, launchRunner, markDone, restoreSession, sendMessage } from './actions.js'
 import { checkHarness } from './adapters.js'
 import { buildEntries, boardJson, renderBoard } from './board.js'
 import { isHarness, loadConfig } from './config.js'
 import { CliError } from './errors.js'
 import { branchExists, createWorktree, removeWorktree, repoRoot, uncommittedCount } from './git.js'
 import { newHarnessSessionId, newSessionId, projectIdFor, sessionSlug } from './ids.js'
-import { home, logPath } from './paths.js'
+import { home } from './paths.js'
 import { runSessionRunner } from './runner.js'
 import {
   activeRunnerCount,
   addProject,
-  appendMessage,
   ensureHome,
   findProject,
   getSession,
-  isAlive,
   listProjects,
   listSessions,
   readEvents,
@@ -31,6 +28,7 @@ import {
 } from './state.js'
 import type { Harness, Session } from './types.js'
 import { findOnPath } from './util.js'
+import { runWatch } from './watch.js'
 
 const VERSION = '0.1.0'
 const LANE_LABEL = (lane: string) => lane.toUpperCase()
@@ -51,29 +49,6 @@ function action<T extends unknown[]>(fn: (...args: T) => Promise<void>) {
 async function readChoice(inline: string | undefined, file: string | undefined, label: string): Promise<string> {
   if (Boolean(inline) === Boolean(file)) throw new CliError(`Provide exactly one of ${label}`, 1)
   return inline ?? (await readFile(file as string, 'utf8')).trim()
-}
-
-async function launchRunner(session: Session): Promise<number | undefined> {
-  const entry = path.resolve(process.argv[1] ?? 'dist/cli.js')
-  const fd = openSync(logPath(session.id), 'a')
-  const child = spawn(process.execPath, [entry, '_run', session.id], {
-    cwd: session.worktreePath,
-    detached: true,
-    stdio: ['ignore', fd, fd],
-    env: { ...process.env, PWD: session.worktreePath },
-  })
-  closeSync(fd)
-  child.unref()
-  return child.pid
-}
-
-function stopRunner(pid: number | undefined): void {
-  if (!isAlive(pid)) return
-  try {
-    process.kill(pid as number, 'SIGTERM')
-  } catch {
-    // Already gone.
-  }
 }
 
 const program = new Command()
@@ -197,8 +172,16 @@ program
   .command('board')
   .description('Show the fleet grouped by derived lane')
   .option('--json')
+  .option('--watch', 'Refresh the board in place with keyboard actions')
+  .option('--interval <seconds>', 'Watch refresh interval in seconds', '1')
   .action(
-    action(async (options: { json?: boolean }) => {
+    action(async (options: { json?: boolean; watch?: boolean; interval?: string }) => {
+      if (options.watch) {
+        const seconds = Number(options.interval)
+        if (!Number.isFinite(seconds) || seconds < 1) throw new CliError('--interval must be a positive number', 1)
+        await runWatch({ intervalMs: seconds * 1000 })
+        return
+      }
       const entries = await buildEntries(await listSessions())
       console.log(options.json ? JSON.stringify(boardJson(entries), null, 2) : renderBoard(entries))
     }),
@@ -279,9 +262,7 @@ sessionCommand
   .argument('<id>')
   .action(
     action(async (id: string) => {
-      const record = await getSession(id)
-      stopRunner(record.pid)
-      await saveSession({ ...record, activeRun: false, pid: undefined, laneOverride: 'done' })
+      await markDone(id)
       console.log(`${id} done`)
     }),
   )
@@ -292,9 +273,7 @@ sessionCommand
   .argument('<id>')
   .action(
     action(async (id: string) => {
-      const record = await getSession(id)
-      stopRunner(record.pid)
-      await saveSession({ ...record, activeRun: false, pid: undefined })
+      await killSession(id)
       console.log(`${id} killed`)
     }),
   )
@@ -305,12 +284,7 @@ sessionCommand
   .argument('<id>')
   .action(
     action(async (id: string) => {
-      const record = await getSession(id)
-      if (record.laneOverride === 'done') throw new CliError('Done sessions cannot be restored', 3)
-      if (record.worktreeRemoved) throw new CliError('Worktree has been removed', 3)
-      if (isAlive(record.pid)) throw new CliError('Runner is already active', 3)
-      const pid = await launchRunner(record)
-      await saveSession({ ...record, pid, activeRun: false })
+      await restoreSession(id)
       console.log(`${id} restored`)
     }),
   )
@@ -353,13 +327,9 @@ program
   .option('--message-file <path>')
   .action(
     action(async (id: string, options: { message?: string; messageFile?: string }) => {
-      const record = await getSession(id)
-      if (record.laneOverride === 'done') throw new CliError('Session is done', 3)
       const message = await readChoice(options.message, options.messageFile, '--message or --message-file')
-      if (!message) throw new CliError('Message must not be empty', 1)
-      await appendMessage(id, message)
-      const inbox = await readInbox(id)
-      console.log(`queued for ${id} (${inbox.filter((item) => !item.delivered).length} pending)`)
+      const pending = await sendMessage(id, message)
+      console.log(`queued for ${id} (${pending} pending)`)
     }),
   )
 
