@@ -1,0 +1,24 @@
+{
+  "name": "eoctl",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone CLI orchestrator for parallel coding agents",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "eoctl": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && vitest run"
+  },
+  "dependencies": {
+    "commander": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
