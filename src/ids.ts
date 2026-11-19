@@ -23,6 +23,10 @@ export function newSessionId(): string {
   return `s_${shortId()}`
 }
 
+export function isSessionId(value: string): boolean {
+  return /^s_[0-9a-f]{8}$/.test(value)
+}
+
 export function newHarnessSessionId(harness: Harness, cliId: string): string {
   return harness === 'opencode' ? `ses_${randomBytes(12).toString('hex')}` : cliId
 }

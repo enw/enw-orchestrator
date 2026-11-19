@@ -1,5 +1,5 @@
 import { runHarness } from './adapters.js'
-import { appendEvent, claimNextMessage, getSession, saveSession } from './state.js'
+import { appendEvent, claimNextMessage, getSession, updateSession } from './state.js'
 import { sleep } from './util.js'
 
 export const PROMPT_FOOTER = 'Commit your changes with a descriptive message when done; do not push.'
@@ -9,8 +9,8 @@ export async function runSessionRunner(id: string): Promise<void> {
   if (initial.laneOverride === 'done') return
 
   let pendingPrompt = initial.pendingPrompt
-  if (pendingPrompt !== undefined) await saveSession({ ...(await getSession(id)), pendingPrompt: undefined })
-  await saveSession({ ...(await getSession(id)), pid: process.pid, activeRun: false })
+  if (pendingPrompt !== undefined) await updateSession(id, (session) => ({ ...session, pendingPrompt: undefined }))
+  await updateSession(id, (session) => ({ ...session, pid: process.pid, activeRun: false }))
 
   const controller = new AbortController()
   let ending = false
@@ -38,7 +38,7 @@ export async function runSessionRunner(id: string): Promise<void> {
       continue
     }
 
-    await saveSession({ ...(await getSession(id)), activeRun: true, pid: process.pid })
+    await updateSession(id, (session) => ({ ...session, activeRun: true, pid: process.pid }))
     try {
       const code = await runHarness(
         {
@@ -56,7 +56,6 @@ export async function runSessionRunner(id: string): Promise<void> {
           at: new Date().toISOString(),
           kind: 'error',
           detail: `harness exited with code ${code}`,
-          source: 'runner',
         })
       }
     } catch (error) {
@@ -64,10 +63,9 @@ export async function runSessionRunner(id: string): Promise<void> {
         at: new Date().toISOString(),
         kind: 'error',
         detail: error instanceof Error ? error.message : String(error),
-        source: 'runner',
       })
     } finally {
-      await saveSession({ ...(await getSession(id)), activeRun: false, pid: process.pid })
+      await updateSession(id, (session) => ({ ...session, activeRun: false, pid: process.pid }))
     }
   }
 }

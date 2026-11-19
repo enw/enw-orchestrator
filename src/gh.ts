@@ -104,28 +104,15 @@ function authorLogin(value: unknown): string {
   return isRecord(value) && typeof value.login === 'string' ? sanitizePrText(value.login, 100) || 'unknown' : 'unknown'
 }
 
-function reviewNotes(value: unknown): PrNote[] {
+function notesFrom(value: unknown, source: PrNote['source'], timeField: string): PrNote[] {
   if (!Array.isArray(value)) return []
   return value.filter(isRecord).map((item) => ({
     id: noteId(item.id),
-    at: sanitizePrText(item.submittedAt, 50),
+    at: sanitizePrText(item[timeField], 50),
     author: authorLogin(item.author),
     body: sanitizePrText(item.body),
-    source: 'review' as const,
-    state: typeof item.state === 'string' ? sanitizePrText(item.state, 50) : undefined,
-    path: typeof item.path === 'string' ? sanitizePrText(item.path, 300) : undefined,
-    line: typeof item.line === 'number' ? item.line : undefined,
-  }))
-}
-
-function commentNotes(value: unknown): PrNote[] {
-  if (!Array.isArray(value)) return []
-  return value.filter(isRecord).map((item) => ({
-    id: noteId(item.id),
-    at: sanitizePrText(item.createdAt, 50),
-    author: authorLogin(item.author),
-    body: sanitizePrText(item.body),
-    source: 'comment' as const,
+    source,
+    state: source === 'review' && typeof item.state === 'string' ? sanitizePrText(item.state, 50) : undefined,
     path: typeof item.path === 'string' ? sanitizePrText(item.path, 300) : undefined,
     line: typeof item.line === 'number' ? item.line : undefined,
   }))
@@ -143,7 +130,7 @@ function normalize(raw: Record<string, unknown>, at: string): PrSnapshot {
     reviewDecision: typeof raw.reviewDecision === 'string' ? sanitizePrText(raw.reviewDecision, 100) : null,
     mergeable: typeof raw.mergeable === 'string' ? sanitizePrText(raw.mergeable, 100) : null,
     checks: checkSummary(raw.statusCheckRollup),
-    notes: [...reviewNotes(raw.reviews), ...commentNotes(raw.comments)],
+    notes: [...notesFrom(raw.reviews, 'review', 'submittedAt'), ...notesFrom(raw.comments, 'comment', 'createdAt')],
   }
 }
 

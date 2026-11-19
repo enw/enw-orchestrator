@@ -28,6 +28,7 @@ import {
   resolveProject,
   savePrSnapshot,
   saveSession,
+  updateSession,
   projectWorktreesDir,
 } from './state.js'
 import type { Harness, Session } from './types.js'
@@ -35,7 +36,6 @@ import { findOnPath } from './util.js'
 import { runWatch } from './watch.js'
 
 const VERSION = '0.1.0'
-const LANE_LABEL = (lane: string) => lane.toUpperCase()
 
 function action<T extends unknown[]>(fn: (...args: T) => Promise<void>) {
   return async (...args: T) => {
@@ -63,20 +63,31 @@ program
   .description('Check local prerequisites')
   .action(
     action(async () => {
-      const checks: Array<[string, boolean]> = [
-        ['node >= 22', Number(process.versions.node.split('.')[0]) >= 22],
-        ['git', Boolean(await findOnPath('git'))],
-        ['opencode', Boolean(await findOnPath('opencode'))],
-        ['pi', Boolean(await findOnPath('pi'))],
+      const config = await loadConfig()
+      const required = new Set<Harness>([config.defaultHarness])
+      for (const session of await listSessions()) required.add(session.harness)
+      const checks: Array<[string, boolean, boolean]> = [
+        ['node >= 22', Number(process.versions.node.split('.')[0]) >= 22, true],
+        ['git', Boolean(await findOnPath('git')), true],
+        ...(await Promise.all(
+          (['opencode', 'pi'] as Harness[]).map(
+            async (harness): Promise<[string, boolean, boolean]> => [
+              harness,
+              Boolean(await findOnPath(harness)),
+              required.has(harness),
+            ],
+          ),
+        )),
         [
           'state directory',
           await access(home(), constants.W_OK)
             .then(() => true)
             .catch(() => false),
+          true,
         ],
       ]
-      for (const [name, ok] of checks) console.log(`${ok ? 'OK' : 'MISSING'}  ${name}`)
-      if (checks.some(([, ok]) => !ok)) process.exitCode = 2
+      for (const [name, ok, needed] of checks) console.log(`${!needed ? 'SKIP' : ok ? 'OK' : 'MISSING'}  ${name}`)
+      if (checks.some(([, ok, needed]) => needed && !ok)) process.exitCode = 2
     }),
   )
 
@@ -167,7 +178,7 @@ program
       }
       await saveSession(session)
       const pid = await launchRunner(session)
-      await saveSession({ ...session, pid })
+      await updateSession(id, (current) => ({ ...current, pid }))
       console.log(`${id}  ${session.name}  [${session.harness}]  ${branch}  ${worktreePath}`)
     }),
   )
@@ -263,7 +274,7 @@ sessionCommand
       if (!sessions.length) console.log('No sessions')
       const entries = await buildEntries(sessions)
       for (const entry of entries) {
-        console.log(`${entry.id}  ${LANE_LABEL(entry.lane)}  ${entry.name}  [${entry.harness}]  ${entry.branch}`)
+        console.log(`${entry.id}  ${entry.lane.toUpperCase()}  ${entry.name}  [${entry.harness}]  ${entry.branch}`)
       }
     }),
   )
@@ -390,7 +401,7 @@ sessionCommand
         const project = await findProject(record.projectId)
         if (!project) throw new CliError(`Project ${record.projectId} not found`, 4)
         await removeWorktree(project.path, record.worktreePath)
-        await saveSession({ ...record, pid: undefined, worktreeRemoved: true })
+        await updateSession(record.id, (session) => ({ ...session, pid: undefined, worktreeRemoved: true }))
         console.log(`${record.id} removed`)
       }
     }),

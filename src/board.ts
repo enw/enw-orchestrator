@@ -3,7 +3,7 @@ import { readEvents, readInbox, readPrSnapshot, isAlive } from './state.js'
 import { relativeTime } from './util.js'
 import type { BoardEntry, Lane, PrSnapshot, Session } from './types.js'
 
-const LANES: Lane[] = ['working', 'idle', 'done', 'error']
+export const LANES: Lane[] = ['working', 'idle', 'done', 'error']
 
 export function deriveLane(session: Session): Lane {
   if (session.laneOverride === 'done') return 'done'
@@ -39,6 +39,12 @@ export async function buildEntry(session: Session): Promise<BoardEntry> {
   }
 }
 
+export function renderEntryLine(entry: BoardEntry, prefix = '  '): string {
+  const dirty = entry.uncommitted < 0 ? '?' : String(entry.uncommitted)
+  const removed = entry.worktreeRemoved ? ' removed' : ''
+  return `${prefix}${entry.id}  ${entry.name}  [${entry.harness}]  ${entry.branch}  dirty:${dirty}  last:${relativeTime(entry.lastActivity)}  age:${entry.age}  queued:${entry.queued}  pr:${formatPr(entry.pr)}${removed}`
+}
+
 export async function buildEntries(sessions: Session[]): Promise<BoardEntry[]> {
   return Promise.all(sessions.map(buildEntry))
 }
@@ -48,13 +54,7 @@ export function renderBoard(entries: BoardEntry[]): string {
   for (const lane of LANES) {
     const group = entries.filter((entry) => entry.lane === lane)
     lines.push(`${lane.toUpperCase()} (${group.length})`)
-    for (const entry of group) {
-      const dirty = entry.uncommitted < 0 ? '?' : String(entry.uncommitted)
-      const suffix = entry.worktreeRemoved ? ' removed' : ''
-      lines.push(
-        `  ${entry.id}  ${entry.name}  [${entry.harness}]  ${entry.branch}  dirty:${dirty}  last:${relativeTime(entry.lastActivity)}  age:${entry.age}  queued:${entry.queued}  pr:${formatPr(entry.pr)}${suffix}`,
-      )
-    }
+    for (const entry of group) lines.push(renderEntryLine(entry))
   }
   return lines.join('\n')
 }

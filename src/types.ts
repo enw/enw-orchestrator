@@ -30,7 +30,6 @@ export interface NormalizedEvent {
   at: string
   kind: 'activity' | 'error'
   detail: string
-  source?: string
 }
 
 export interface InboxMessage {
@@ -44,7 +43,8 @@ export interface Config {
   defaultHarness: Harness
 }
 
-export type PrState = 'open' | 'merged' | 'closed' | 'none' | 'error'
+export const PR_STATES = ['open', 'merged', 'closed', 'none', 'error'] as const
+export type PrState = (typeof PR_STATES)[number]
 
 export interface PrCheckSummary {
   total: number

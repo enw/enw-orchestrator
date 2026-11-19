@@ -19,10 +19,11 @@ import {
   prPath,
   prRoutedPath,
   worktreesDir,
-  piSessionsDir,
 } from './paths.js'
 import { isHarness } from './config.js'
+import { isSessionId } from './ids.js'
 import { redact } from './redact.js'
+import { PR_STATES } from './types.js'
 import type { InboxMessage, NormalizedEvent, PrCheckSummary, PrNote, PrSnapshot, Project, Session } from './types.js'
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
@@ -58,8 +59,7 @@ export const isEvent = (value: unknown): value is NormalizedEvent =>
   isRecord(value) &&
   isString(value.at) &&
   (value.kind === 'activity' || value.kind === 'error') &&
-  isString(value.detail) &&
-  (value.source === undefined || isString(value.source))
+  isString(value.detail)
 
 export const isInboxMessage = (value: unknown): value is InboxMessage =>
   isRecord(value) && isString(value.at) && isString(value.text) && isBoolean(value.delivered)
@@ -81,7 +81,7 @@ const isPrNote = (value: unknown): value is PrNote =>
 export const isPrSnapshot = (value: unknown): value is PrSnapshot =>
   isRecord(value) &&
   isString(value.at) &&
-  ['open', 'merged', 'closed', 'none', 'error'].includes(String(value.state)) &&
+  (PR_STATES as readonly string[]).includes(String(value.state)) &&
   isPrCheckSummary(value.checks) &&
   Array.isArray(value.notes) &&
   value.notes.every(isPrNote) &&
@@ -130,6 +130,7 @@ export async function resolveProject(explicitId?: string, cwd = process.cwd()): 
 }
 
 export async function getSession(id: string): Promise<Session> {
+  if (!isSessionId(id)) throw new CliError(`Session ${id} not found`, 4)
   let text: string
   try {
     text = await readFile(sessionPath(id), 'utf8')
@@ -164,6 +165,12 @@ export async function listSessions(): Promise<Session[]> {
 
 export async function saveSession(session: Session): Promise<void> {
   await withLock(lockPath(sessionPath(session.id)), () => writeJsonAtomic(sessionPath(session.id), session))
+}
+
+export async function updateSession(id: string, update: (session: Session) => Session): Promise<void> {
+  await withLock(lockPath(sessionPath(id)), async () => {
+    await writeJsonAtomic(sessionPath(id), update(await getSession(id)))
+  })
 }
 
 export async function appendEvent(id: string, event: NormalizedEvent): Promise<void> {
@@ -209,7 +216,7 @@ export async function readRoutedKeys(id: string): Promise<string[]> {
 }
 
 export async function saveRoutedKeys(id: string, keys: string[]): Promise<void> {
-  await withLock(lockPath(prRoutedPath(id)), () => writeJsonAtomic(prRoutedPath(id), keys.slice(-500)))
+  await withLock(lockPath(prRoutedPath(id)), () => writeJsonAtomic(prRoutedPath(id), keys))
 }
 
 export async function appendMessage(id: string, text: string): Promise<void> {
@@ -255,11 +262,6 @@ export async function appendRaw(id: string, stream: 'stdout' | 'stderr', line: s
 
 export async function readRaw(id: string): Promise<string[]> {
   return (await readLines(rawLogPath(id))).map(redact)
-}
-
-export async function piSessionDirFor(id: string): Promise<string> {
-  await ensureDir(piSessionsDir(id))
-  return piSessionsDir(id)
 }
 
 export async function projectWorktreesDir(projectId: string): Promise<string> {

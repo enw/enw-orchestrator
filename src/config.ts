@@ -1,5 +1,5 @@
 import { configPath } from './paths.js'
-import { readJson, writeJsonAtomic } from './jsonio.js'
+import { readJson } from './jsonio.js'
 import { CliError } from './errors.js'
 import type { Config, Harness } from './types.js'
 
@@ -35,9 +35,4 @@ export async function loadConfig(): Promise<Config> {
     resolved.defaultHarness = defaultHarness
   }
   return resolved
-}
-
-export async function saveConfig(config: Config): Promise<void> {
-  if (!isConfig(config)) throw new CliError('Invalid config', 1)
-  await writeJsonAtomic(configPath(), config)
 }

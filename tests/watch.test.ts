@@ -47,6 +47,8 @@ describe('watch TUI', () => {
   it('parses navigation and message-mode keys', () => {
     expect(parseKey('j', 'nav')).toEqual({ kind: 'down' })
     expect(parseKey('\x1b[A', 'nav')).toEqual({ kind: 'up' })
+    expect(parseKey('\x1b[C', 'nav')).toEqual({ kind: 'down' })
+    expect(parseKey('\x1b[D', 'nav')).toEqual({ kind: 'up' })
     expect(parseKey('m', 'nav')).toEqual({ kind: 'message' })
     expect(parseKey('m', 'message')).toEqual({ kind: 'char', value: 'm' })
     expect(parseKey('\r', 'message')).toEqual({ kind: 'enter' })
@@ -91,6 +93,20 @@ describe('watch TUI', () => {
     expect(frame).toContain('WORKING (1)')
     expect(frame).toContain('> s_a  alpha')
     expect(frame).toContain('message> hi_')
+  })
+
+  it('restores raw mode and the cursor when setup fails', async () => {
+    const io = makeIO()
+    const setRawMode = io.stdin.setRawMode!
+    Object.assign(io.stdin, {
+      setRawMode: (enabled: boolean) => {
+        setRawMode(enabled)
+        if (enabled) throw new Error('raw mode unavailable')
+      },
+    })
+    await expect(runWatch({ intervalMs: 100 }, io)).rejects.toThrow('raw mode unavailable')
+    expect(io.raw()).toBe(false)
+    expect(io.output()).toContain('\x1b[?25h')
   })
 
   describe('fake-stream run', () => {

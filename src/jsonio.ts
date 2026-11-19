@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { CliError } from './errors.js'
 
@@ -61,10 +61,4 @@ export async function fileSize(file: string): Promise<number> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
     throw error
   }
-}
-
-export async function removeFile(file: string): Promise<void> {
-  await unlink(file).catch((error) => {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  })
 }

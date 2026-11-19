@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process'
 import { CliError } from './errors.js'
-import { appendEvent, appendRaw, piSessionDirFor } from './state.js'
+import { ensureDir } from './jsonio.js'
+import { piSessionsDir } from './paths.js'
+import { appendEvent, appendRaw } from './state.js'
 import { findOnPath } from './util.js'
 import type { Harness, NormalizedEvent } from './types.js'
 
@@ -68,18 +70,18 @@ function normalizeOpenCode(line: string): NormalizedEvent | null {
       typeof error === 'object' && error !== null && typeof (error as Record<string, unknown>).message === 'string'
         ? String((error as Record<string, unknown>).message)
         : 'harness error'
-    return { at: new Date().toISOString(), kind: 'error', detail, source: 'opencode' }
+    return { at: new Date().toISOString(), kind: 'error', detail }
   }
   if (type === 'tool_use') {
     const part = record.part
     const tool = typeof part === 'object' && part !== null ? (part as Record<string, unknown>).tool : undefined
-    return { at: new Date().toISOString(), kind: 'activity', detail: `tool ${String(tool ?? 'unknown')}`, source: 'opencode' }
+    return { at: new Date().toISOString(), kind: 'activity', detail: `tool ${String(tool ?? 'unknown')}` }
   }
   if (type === 'step_finish') {
-    return { at: new Date().toISOString(), kind: 'activity', detail: 'step finished', source: 'opencode' }
+    return { at: new Date().toISOString(), kind: 'activity', detail: 'step finished' }
   }
   if (type === 'retry') {
-    return { at: new Date().toISOString(), kind: 'activity', detail: 'retrying', source: 'opencode' }
+    return { at: new Date().toISOString(), kind: 'activity', detail: 'retrying' }
   }
   return null
 }
@@ -95,13 +97,13 @@ function normalizePi(line: string): NormalizedEvent | null {
   }
   const type = record.type
   if (type === 'tool_execution_start') {
-    return { at: new Date().toISOString(), kind: 'activity', detail: `tool ${String(record.toolName ?? 'unknown')}`, source: 'pi' }
+    return { at: new Date().toISOString(), kind: 'activity', detail: `tool ${String(record.toolName ?? 'unknown')}` }
   }
   if (type === 'agent_settled') {
-    return { at: new Date().toISOString(), kind: 'activity', detail: 'turn settled', source: 'pi' }
+    return { at: new Date().toISOString(), kind: 'activity', detail: 'turn settled' }
   }
   if (type === 'auto_retry_end' && record.success === false) {
-    return { at: new Date().toISOString(), kind: 'error', detail: String(record.finalError ?? 'retry failed'), source: 'pi' }
+    return { at: new Date().toISOString(), kind: 'error', detail: String(record.finalError ?? 'retry failed') }
   }
   return null
 }
@@ -124,7 +126,8 @@ export async function runHarness(ctx: RunContext, signal?: AbortSignal): Promise
     normalize = normalizeOpenCode
   } else {
     command = 'pi'
-    const sessionDir = await piSessionDirFor(ctx.harnessSessionId)
+    const sessionDir = piSessionsDir(ctx.harnessSessionId)
+    await ensureDir(sessionDir)
     args = ['--mode', 'json', '--session-dir', sessionDir, '--session-id', ctx.harnessSessionId]
     if (ctx.model) args.push('--model', ctx.model)
     args.push(ctx.prompt)

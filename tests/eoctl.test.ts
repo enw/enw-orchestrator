@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process'
-import { readFile, unlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -115,5 +115,24 @@ describe('eoctl slice 1', () => {
     expect(noPrompt.code).toBe(1)
     const doctor = await runCli(['doctor'], { cwd: repo, env })
     expect(doctor.code).toBe(0)
+  })
+
+  it('rejects session ids that could escape the state directory', async () => {
+    const traversal = await runCli(['session', 'get', '../../etc/passwd'], { cwd: repo, env })
+    expect(traversal.code).toBe(4)
+    expect(traversal.stderr).toContain('not found')
+  })
+
+  it('doctor skips harnesses that are not configured or in use', async () => {
+    const bin = path.join(root, 'opencode-only')
+    await mkdir(bin, { recursive: true })
+    const harness = path.join(bin, 'opencode')
+    await writeFile(harness, '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+    await chmod(harness, 0o755)
+    const doctorEnv = { ...env, PATH: `${bin}:/usr/bin:/bin`, ORCH_DEFAULT_HARNESS: 'opencode' }
+    const doctor = await runCli(['doctor'], { cwd: repo, env: doctorEnv })
+    expect(doctor.code).toBe(0)
+    expect(doctor.stdout).toContain('OK  opencode')
+    expect(doctor.stdout).toContain('SKIP  pi')
   })
 })

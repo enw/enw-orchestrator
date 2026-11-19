@@ -160,12 +160,24 @@ the routed-key file can duplicate a message, never lose one.
 ## Development
 
 ```bash
-npm test       # build + integration tests with fake harnesses
+npm test          # build + integration tests with fake harnesses
+npm run smoke:real # real opencode + pi workers in a throwaway repo
 ```
 
-Slice 1 acceptance was verified with one real smoke run per harness: both
-`opencode` and `pi` workers emitted parseable JSONL and left a commit in their
-own worktree, with the source repo untouched. Slice 2 was verified with a real
+`npm run smoke:real` requires real `git`, `opencode`, and `pi` on `PATH` (plus
+any provider auth those harnesses need). It asserts one commit per worker,
+parseable JSONL event lines, and an untouched source repo, then removes the
+throwaway directory. Set `EOCTL_SMOKE_HARNESSES=opencode` (or `pi`) to smoke a
+subset when a harness has no configured provider; `EOCTL_SMOKE_KEEP=1` keeps
+the artifacts for inspection.
+
+Slice 1 acceptance calls for one real smoke run per harness. The `opencode`
+run passes here: it emitted parseable JSONL and left a commit in its own
+worktree with the source repo untouched, verified by
+`EOCTL_SMOKE_HARNESSES=opencode npm run smoke:real`. The `pi` run could not be
+verified in this environment because the local Pi provider has no usable model
+or API key; it needs provider auth before that half of the criterion can pass.
+Reproduce both with `npm run smoke:real`. Slice 2 was verified with a real
 PTY run: a follow-up typed in watch mode landed as a new worker commit, and the
 cursor was restored on quit. Slice 3a was verified with six fake-`gh` integration
 tests covering found/no-PR/failing/fallback observations, argv-only branch

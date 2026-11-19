@@ -1,11 +1,8 @@
 import { killSession, markDone, restoreSession, sendMessage } from './actions.js'
-import { buildEntries, formatPr } from './board.js'
+import { buildEntries, LANES, renderEntryLine } from './board.js'
 import { CliError } from './errors.js'
 import { listSessions } from './state.js'
-import type { BoardEntry, Lane } from './types.js'
-import { relativeTime } from './util.js'
-
-const LANES: Lane[] = ['working', 'idle', 'done', 'error']
+import type { BoardEntry } from './types.js'
 
 export type WatchMode = 'nav' | 'message'
 
@@ -39,8 +36,8 @@ export interface WatchIO {
 }
 
 export function parseKey(chunk: string, mode: WatchMode): WatchKey {
-  if (chunk === '\x1b[A') return { kind: 'up' }
-  if (chunk === '\x1b[B') return { kind: 'down' }
+  if (chunk === '\x1b[A' || chunk === '\x1b[D') return { kind: 'up' }
+  if (chunk === '\x1b[B' || chunk === '\x1b[C') return { kind: 'down' }
   if (chunk === '\r' || chunk === '\n') return { kind: 'enter' }
   if (chunk === '\x7f' || chunk === '\b') return { kind: 'backspace' }
   if (chunk === '\x1b') return { kind: 'escape' }
@@ -125,11 +122,7 @@ export function renderWatchFrame(entries: BoardEntry[], state: WatchState, at: D
     lines.push(`${lane.toUpperCase()} (${group.length})`)
     for (const entry of group) {
       const marker = entry.id === state.selectedId ? '>' : ' '
-      const dirty = entry.uncommitted < 0 ? '?' : String(entry.uncommitted)
-      const removed = entry.worktreeRemoved ? ' removed' : ''
-      lines.push(
-        `${marker} ${entry.id}  ${entry.name}  [${entry.harness}]  ${entry.branch}  dirty:${dirty}  last:${relativeTime(entry.lastActivity)}  age:${entry.age}  queued:${entry.queued}  pr:${formatPr(entry.pr)}${removed}`,
-      )
+      lines.push(renderEntryLine(entry, `${marker} `))
     }
   }
   lines.push('')
@@ -155,13 +148,16 @@ export async function runWatch(options: { intervalMs: number }, io: WatchIO = de
   let cleaned = false
   let resolveStop: (() => void) | null = null
   let rendering: Promise<void> = Promise.resolve()
+  let timer: NodeJS.Timeout | undefined
+  let dataAttached = false
+  let rawSet = false
 
   const cleanup = () => {
     if (cleaned) return
     cleaned = true
-    clearInterval(timer)
-    io.stdin.off?.('data', onData)
-    io.stdin.setRawMode?.(false)
+    if (timer) clearInterval(timer)
+    if (dataAttached) io.stdin.off?.('data', onData)
+    if (rawSet) io.stdin.setRawMode?.(false)
     io.stdin.pause?.()
     io.stdout.write('\x1b[?25h\n')
   }
@@ -171,7 +167,7 @@ export async function runWatch(options: { intervalMs: number }, io: WatchIO = de
     cleanup()
     resolveStop?.()
   }
-  const onData = (chunk: Buffer | string) => {
+  function onData(chunk: Buffer | string) {
     const text = chunk.toString()
     const key = parseKey(text, state.mode)
     const reduced = reduceWatchKey(state, key)
@@ -204,17 +200,18 @@ export async function runWatch(options: { intervalMs: number }, io: WatchIO = de
     io.stdout.write(`\x1b[2J\x1b[H${renderWatchFrame(entries, state)}\x1b[?25l`)
   }
 
-  io.stdin.setRawMode?.(true)
-  io.stdin.resume?.()
-  io.stdout.write('\x1b[?25l')
-  io.stdin.on('data', onData)
-  const timer = setInterval(() => {
-    rendering = rendering.then(refresh).catch(() => {})
-  }, options.intervalMs)
-  process.once('SIGINT', stop)
-  process.once('SIGTERM', stop)
-
   try {
+    rawSet = true
+    io.stdin.setRawMode?.(true)
+    io.stdin.resume?.()
+    io.stdout.write('\x1b[?25l')
+    io.stdin.on('data', onData)
+    dataAttached = true
+    timer = setInterval(() => {
+      rendering = rendering.then(refresh).catch(() => {})
+    }, options.intervalMs)
+    process.once('SIGINT', stop)
+    process.once('SIGTERM', stop)
     await refresh()
     if (!stopped) await new Promise<void>((resolve) => { resolveStop = resolve })
   } finally {
