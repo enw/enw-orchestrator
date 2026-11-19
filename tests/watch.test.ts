@@ -82,6 +82,7 @@ describe('watch TUI', () => {
           age: '1s',
           queued: 0,
           worktreeRemoved: false,
+          pr: null,
         },
       ],
       state,

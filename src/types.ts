@@ -44,6 +44,39 @@ export interface Config {
   defaultHarness: Harness
 }
 
+export type PrState = 'open' | 'merged' | 'closed' | 'none' | 'error'
+
+export interface PrCheckSummary {
+  total: number
+  pass: number
+  fail: number
+  pending: number
+}
+
+export interface PrNote {
+  at: string
+  author: string
+  body: string
+  source: 'review' | 'comment'
+  state?: string
+  path?: string
+  line?: number
+}
+
+export interface PrSnapshot {
+  at: string
+  state: PrState
+  number?: number
+  url?: string
+  title?: string
+  isDraft?: boolean
+  reviewDecision: string | null
+  mergeable: string | null
+  checks: PrCheckSummary
+  notes: PrNote[]
+  error?: string
+}
+
 export interface BoardEntry {
   id: string
   name: string
@@ -56,4 +89,5 @@ export interface BoardEntry {
   age: string
   queued: number
   worktreeRemoved: boolean
+  pr: PrSnapshot | null
 }

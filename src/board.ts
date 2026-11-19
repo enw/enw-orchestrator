@@ -1,7 +1,7 @@
 import { uncommittedCount } from './git.js'
-import { readEvents, readInbox, isAlive } from './state.js'
+import { readEvents, readInbox, readPrSnapshot, isAlive } from './state.js'
 import { relativeTime } from './util.js'
-import type { BoardEntry, Lane, Session } from './types.js'
+import type { BoardEntry, Lane, PrSnapshot, Session } from './types.js'
 
 const LANES: Lane[] = ['working', 'idle', 'done', 'error']
 
@@ -10,6 +10,14 @@ export function deriveLane(session: Session): Lane {
   if (session.activeRun) return 'working'
   if (!isAlive(session.pid)) return 'error'
   return 'idle'
+}
+
+export function formatPr(snapshot: PrSnapshot | null): string {
+  if (!snapshot) return '-'
+  if (snapshot.state === 'error') return `error/${snapshot.error ?? 'unknown'}`
+  if (snapshot.state === 'none') return 'none'
+  const checks = snapshot.checks.total ? `${snapshot.checks.pass}/${snapshot.checks.total}` : '-'
+  return `#${snapshot.number ?? '?'}/${snapshot.state}/checks:${checks}/review:${snapshot.reviewDecision ?? '-'}`
 }
 
 export async function buildEntry(session: Session): Promise<BoardEntry> {
@@ -27,6 +35,7 @@ export async function buildEntry(session: Session): Promise<BoardEntry> {
     age: relativeTime(session.createdAt),
     queued: messages.filter((message) => !message.delivered).length,
     worktreeRemoved: session.worktreeRemoved,
+    pr: await readPrSnapshot(session.id),
   }
 }
 
@@ -43,7 +52,7 @@ export function renderBoard(entries: BoardEntry[]): string {
       const dirty = entry.uncommitted < 0 ? '?' : String(entry.uncommitted)
       const suffix = entry.worktreeRemoved ? ' removed' : ''
       lines.push(
-        `  ${entry.id}  ${entry.name}  [${entry.harness}]  ${entry.branch}  dirty:${dirty}  last:${relativeTime(entry.lastActivity)}  age:${entry.age}  queued:${entry.queued}${suffix}`,
+        `  ${entry.id}  ${entry.name}  [${entry.harness}]  ${entry.branch}  dirty:${dirty}  last:${relativeTime(entry.lastActivity)}  age:${entry.age}  queued:${entry.queued}  pr:${formatPr(entry.pr)}${suffix}`,
       )
     }
   }

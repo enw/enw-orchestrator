@@ -4,8 +4,9 @@ import { access, constants, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { killSession, launchRunner, markDone, restoreSession, sendMessage } from './actions.js'
 import { checkHarness } from './adapters.js'
-import { buildEntries, boardJson, renderBoard } from './board.js'
+import { buildEntries, boardJson, formatPr, renderBoard } from './board.js'
 import { isHarness, loadConfig } from './config.js'
+import { errorSnapshot, observePr } from './gh.js'
 import { CliError } from './errors.js'
 import { branchExists, createWorktree, removeWorktree, repoRoot, uncommittedCount } from './git.js'
 import { newHarnessSessionId, newSessionId, projectIdFor, sessionSlug } from './ids.js'
@@ -21,8 +22,10 @@ import {
   listSessions,
   readEvents,
   readInbox,
+  readPrSnapshot,
   readRaw,
   resolveProject,
+  savePrSnapshot,
   saveSession,
   projectWorktreesDir,
 } from './state.js'
@@ -187,6 +190,43 @@ program
     }),
   )
 
+const prCommand = program.command('pr').description('Observe pull requests and CI via gh')
+
+prCommand
+  .command('refresh')
+  .description('Snapshot PR/CI state for sessions (read-only)')
+  .argument('[id...]')
+  .action(
+    action(async (ids: string[]) => {
+      const records = ids.length
+        ? await Promise.all(ids.map((id) => getSession(id)))
+        : (await listSessions()).filter((record) => record.laneOverride !== 'done' && !record.worktreeRemoved)
+      if (!records.length) {
+        console.log('No sessions to observe')
+        return
+      }
+      for (const record of records) {
+        let snapshot
+        try {
+          const project = await findProject(record.projectId)
+          if (!project) throw new Error(`project ${record.projectId} not found`)
+          snapshot = await observePr(record, project)
+        } catch (error) {
+          if (error instanceof CliError && error.exitCode === 2) throw error
+          snapshot = errorSnapshot(error instanceof Error ? error.message : String(error))
+        }
+        await savePrSnapshot(record.id, snapshot)
+        const checks = snapshot.checks.total ? `${snapshot.checks.pass}/${snapshot.checks.total}` : '-'
+        const summary = `#${snapshot.number ?? '-'}  checks:${checks}  review:${snapshot.reviewDecision ?? '-'}`
+        console.log(
+          snapshot.state === 'error'
+            ? `${record.id}  error  ${snapshot.error ?? ''}`.trimEnd()
+            : `${record.id}  ${snapshot.state}  ${summary}  ${snapshot.url ?? ''}`.trimEnd(),
+        )
+      }
+    }),
+  )
+
 const sessionCommand = program.command('session').description('Inspect and control sessions')
 
 sessionCommand
@@ -225,6 +265,18 @@ sessionCommand
       console.log(`worktree: ${record.worktreePath}${record.worktreeRemoved ? ' (removed)' : ''}`)
       console.log(`runner: ${record.pid ?? 'none'}`)
       console.log(`queued: ${inbox.filter((message) => !message.delivered).length}`)
+      const pr = await readPrSnapshot(id)
+      if (pr) {
+        console.log(`pr: ${formatPr(pr)}`)
+        if (pr.url) console.log(`pr url: ${pr.url}`)
+        console.log(
+          `pr checks: ${pr.checks.pass} pass, ${pr.checks.fail} fail, ${pr.checks.pending} pending (${pr.checks.total} total)`,
+        )
+        console.log(
+          `pr notes: ${pr.notes.filter((note) => note.source === 'review').length} reviews, ${pr.notes.filter((note) => note.source === 'comment').length} comments`,
+        )
+        if (pr.error) console.log(`pr error: ${pr.error}`)
+      }
     }),
   )
 

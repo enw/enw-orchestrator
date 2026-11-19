@@ -9,7 +9,7 @@ export async function runSessionRunner(id: string): Promise<void> {
   if (initial.laneOverride === 'done') return
 
   let pendingPrompt = initial.pendingPrompt
-  if (pendingPrompt !== undefined) await saveSession({ ...initial, pendingPrompt: undefined })
+  if (pendingPrompt !== undefined) await saveSession({ ...(await getSession(id)), pendingPrompt: undefined })
   await saveSession({ ...(await getSession(id)), pid: process.pid, activeRun: false })
 
   const controller = new AbortController()

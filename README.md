@@ -11,9 +11,10 @@ as a controller; `eoctl` shares no code, daemon, or API with it.
 
 ## Status
 
-Slice 1 (CLI + worktree workers) and slice 2 (`board --watch` + key actions)
-are implemented. See [PROPOSAL.md](PROPOSAL.md) for the approved design and
-slice-1 acceptance criteria.
+Slice 1 (CLI + worktree workers), slice 2 (`board --watch` + key actions), and
+slice 3a (read-only PR/CI observation) are implemented. See
+[PROPOSAL.md](PROPOSAL.md) for the approved design and slice-1 acceptance
+criteria.
 
 ## Requirements
 
@@ -55,6 +56,7 @@ eoctl spawn --name <name> --harness opencode|pi \
             --prompt <text>|--prompt-file <path> \
             [--project <id>] [--branch <branch>] [--model <model>]
 eoctl board [--json] [--watch] [--interval <seconds>]
+eoctl pr refresh [id...]       # snapshot PR/CI state via gh (read-only)
 eoctl session ls | get <id> [--json] | log <id> [--raw] [--follow] |
             done <id> | kill <id> | restore <id> | cleanup [--dry-run]
 eoctl send <id> --message <text>|--message-file <path>
@@ -81,6 +83,9 @@ through a shell. Follow-ups are queued, not steered into a running turn.
 - `cleanup` removes worktrees only for `done` sessions with a clean worktree.
   Dirty worktrees are refused with a reason. Branches, metadata, logs, and
   inbox are kept; `project rm` and hard delete do not exist.
+- `pr refresh` runs `gh pr view <branch>` from each project root (falling back
+  to `gh pr list --head`) and stores a snapshot in `~/.orchestrator-cli/pr/`.
+  The board and `session get` read that snapshot; only `pr refresh` calls gh.
 - Logs are capped at 1 MB per session and redact common token patterns.
 
 Config: `~/.orchestrator-cli/config.json` with `maxWorkers` (default 4, global
@@ -94,7 +99,8 @@ Exit codes: `0` ok, `1` usage, `2` prerequisite missing, `3` busy/cap reached,
 
 These are deliberate and will not work in slice 1:
 
-- No PR creation, CI status, or review-feedback routing.
+- No PR creation and no review-feedback routing. PR/CI state is observed
+  read-only with `pr refresh`.
 - No planning agent that splits an outcome into workers.
 - No `needs-you` detection. Harness questions and permission denials are
   fail-safe (auto-denied/cancelled) and visible only in `session log --raw`.
@@ -123,6 +129,22 @@ every exit path. Selection is tracked by session id so it survives lane changes.
 OpenCode runs against the shared service (no `--standalone`, no `--auto`);
 Pi sessions are pinned with an absolute `--session-dir` plus `--session-id`.
 
+## PR/CI observation
+
+`eoctl pr refresh [id...]` snapshots GitHub PR state for active sessions using
+`gh`. It never creates or edits PRs. With no ids it refreshes all non-done
+sessions with a live worktree. It tries `gh pr view <branch>` from the project
+root and falls back to `gh pr list --head <branch> --state all` if positional
+branch lookup is unsupported. No PR is a normal `none` snapshot; a gh failure
+becomes an `error` snapshot with redacted stderr and does not block other
+sessions. Missing `gh` exits 2.
+
+Snapshots live in `~/.orchestrator-cli/pr/<id>.json` and include check counts,
+review decision, and redacted review/comment bodies. `board`, `board --json`,
+and `session get` show the last snapshot without calling gh, so PR data stays
+stale until you refresh. `board --watch` does not auto-refresh. Routing review
+comments back into session inboxes is a later slice.
+
 ## Development
 
 ```bash
@@ -133,4 +155,6 @@ Slice 1 acceptance was verified with one real smoke run per harness: both
 `opencode` and `pi` workers emitted parseable JSONL and left a commit in their
 own worktree, with the source repo untouched. Slice 2 was verified with a real
 PTY run: a follow-up typed in watch mode landed as a new worker commit, and the
-cursor was restored on quit.
+cursor was restored on quit. Slice 3a was verified with six fake-`gh` integration
+tests covering found/no-PR/failing/fallback observations, argv-only branch
+passing, redaction, and zero gh calls from board or `session get`.

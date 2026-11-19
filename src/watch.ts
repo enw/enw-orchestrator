@@ -1,5 +1,5 @@
 import { killSession, markDone, restoreSession, sendMessage } from './actions.js'
-import { buildEntries } from './board.js'
+import { buildEntries, formatPr } from './board.js'
 import { CliError } from './errors.js'
 import { listSessions } from './state.js'
 import type { BoardEntry, Lane } from './types.js'
@@ -128,7 +128,7 @@ export function renderWatchFrame(entries: BoardEntry[], state: WatchState, at: D
       const dirty = entry.uncommitted < 0 ? '?' : String(entry.uncommitted)
       const removed = entry.worktreeRemoved ? ' removed' : ''
       lines.push(
-        `${marker} ${entry.id}  ${entry.name}  [${entry.harness}]  ${entry.branch}  dirty:${dirty}  last:${relativeTime(entry.lastActivity)}  age:${entry.age}  queued:${entry.queued}${removed}`,
+        `${marker} ${entry.id}  ${entry.name}  [${entry.harness}]  ${entry.branch}  dirty:${dirty}  last:${relativeTime(entry.lastActivity)}  age:${entry.age}  queued:${entry.queued}  pr:${formatPr(entry.pr)}${removed}`,
       )
     }
   }

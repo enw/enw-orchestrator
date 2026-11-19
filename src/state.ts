@@ -15,12 +15,14 @@ import {
   sessionsDir,
   home,
   logsDir,
+  prDir,
+  prPath,
   worktreesDir,
   piSessionsDir,
 } from './paths.js'
 import { isHarness } from './config.js'
 import { redact } from './redact.js'
-import type { InboxMessage, NormalizedEvent, Project, Session } from './types.js'
+import type { InboxMessage, NormalizedEvent, PrCheckSummary, PrNote, PrSnapshot, Project, Session } from './types.js'
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 const isString = (value: unknown): value is string => typeof value === 'string'
@@ -61,9 +63,37 @@ export const isEvent = (value: unknown): value is NormalizedEvent =>
 export const isInboxMessage = (value: unknown): value is InboxMessage =>
   isRecord(value) && isString(value.at) && isString(value.text) && isBoolean(value.delivered)
 
+const isPrCheckSummary = (value: unknown): value is PrCheckSummary =>
+  isRecord(value) && ['total', 'pass', 'fail', 'pending'].every((key) => typeof value[key] === 'number')
+
+const isPrNote = (value: unknown): value is PrNote =>
+  isRecord(value) &&
+  isString(value.at) &&
+  isString(value.author) &&
+  isString(value.body) &&
+  (value.source === 'review' || value.source === 'comment') &&
+  (value.state === undefined || isString(value.state)) &&
+  (value.path === undefined || isString(value.path)) &&
+  (value.line === undefined || typeof value.line === 'number')
+
+export const isPrSnapshot = (value: unknown): value is PrSnapshot =>
+  isRecord(value) &&
+  isString(value.at) &&
+  ['open', 'merged', 'closed', 'none', 'error'].includes(String(value.state)) &&
+  isPrCheckSummary(value.checks) &&
+  Array.isArray(value.notes) &&
+  value.notes.every(isPrNote) &&
+  (value.number === undefined || typeof value.number === 'number') &&
+  (value.url === undefined || isString(value.url)) &&
+  (value.title === undefined || isString(value.title)) &&
+  (value.isDraft === undefined || isBoolean(value.isDraft)) &&
+  (value.reviewDecision === null || isString(value.reviewDecision)) &&
+  (value.mergeable === null || isString(value.mergeable)) &&
+  (value.error === undefined || isString(value.error))
+
 export async function ensureHome(): Promise<void> {
   await Promise.all(
-    [home(), sessionsDir(), eventsDir(), inboxDir(), logsDir(), worktreesDir()].map((dir) => ensureDir(dir)),
+    [home(), sessionsDir(), eventsDir(), inboxDir(), logsDir(), prDir(), worktreesDir()].map((dir) => ensureDir(dir)),
   )
 }
 
@@ -162,6 +192,14 @@ export async function readInbox(id: string): Promise<InboxMessage[]> {
     }
   }
   return messages
+}
+
+export async function savePrSnapshot(id: string, snapshot: PrSnapshot): Promise<void> {
+  await withLock(lockPath(prPath(id)), () => writeJsonAtomic(prPath(id), snapshot))
+}
+
+export async function readPrSnapshot(id: string): Promise<PrSnapshot | null> {
+  return readJson<PrSnapshot | null>(prPath(id), null, (value): value is PrSnapshot | null => value === null || isPrSnapshot(value))
 }
 
 export async function appendMessage(id: string, text: string): Promise<void> {
