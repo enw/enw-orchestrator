@@ -54,6 +54,7 @@ export interface PrCheckSummary {
 }
 
 export interface PrNote {
+  id?: string
   at: string
   author: string
   body: string

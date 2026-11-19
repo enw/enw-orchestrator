@@ -21,4 +21,5 @@ export const inboxPath = (id: string) => path.join(inboxDir(), `${id}.jsonl`)
 export const logPath = (id: string) => path.join(logsDir(), `${id}.log`)
 export const rawLogPath = (id: string) => path.join(logsDir(), `${id}.raw.log`)
 export const prPath = (id: string) => path.join(prDir(), `${id}.json`)
+export const prRoutedPath = (id: string) => path.join(prDir(), `${id}.routed.json`)
 export const lockPath = (file: string) => `${file}.lock`

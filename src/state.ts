@@ -17,6 +17,7 @@ import {
   logsDir,
   prDir,
   prPath,
+  prRoutedPath,
   worktreesDir,
   piSessionsDir,
 } from './paths.js'
@@ -68,6 +69,7 @@ const isPrCheckSummary = (value: unknown): value is PrCheckSummary =>
 
 const isPrNote = (value: unknown): value is PrNote =>
   isRecord(value) &&
+  (value.id === undefined || isString(value.id)) &&
   isString(value.at) &&
   isString(value.author) &&
   isString(value.body) &&
@@ -200,6 +202,14 @@ export async function savePrSnapshot(id: string, snapshot: PrSnapshot): Promise<
 
 export async function readPrSnapshot(id: string): Promise<PrSnapshot | null> {
   return readJson<PrSnapshot | null>(prPath(id), null, (value): value is PrSnapshot | null => value === null || isPrSnapshot(value))
+}
+
+export async function readRoutedKeys(id: string): Promise<string[]> {
+  return readJson<string[]>(prRoutedPath(id), [], (value): value is string[] => Array.isArray(value) && value.every(isString))
+}
+
+export async function saveRoutedKeys(id: string, keys: string[]): Promise<void> {
+  await withLock(lockPath(prRoutedPath(id)), () => writeJsonAtomic(prRoutedPath(id), keys.slice(-500)))
 }
 
 export async function appendMessage(id: string, text: string): Promise<void> {

@@ -11,10 +11,10 @@ as a controller; `eoctl` shares no code, daemon, or API with it.
 
 ## Status
 
-Slice 1 (CLI + worktree workers), slice 2 (`board --watch` + key actions), and
-slice 3a (read-only PR/CI observation) are implemented. See
-[PROPOSAL.md](PROPOSAL.md) for the approved design and slice-1 acceptance
-criteria.
+Slice 1 (CLI + worktree workers), slice 2 (`board --watch` + key actions),
+slice 3a (read-only PR/CI observation), and slice 3b (review feedback routing)
+are implemented. See [PROPOSAL.md](PROPOSAL.md) for the approved design and
+slice-1 acceptance criteria.
 
 ## Requirements
 
@@ -57,6 +57,7 @@ eoctl spawn --name <name> --harness opencode|pi \
             [--project <id>] [--branch <branch>] [--model <model>]
 eoctl board [--json] [--watch] [--interval <seconds>]
 eoctl pr refresh [id...]       # snapshot PR/CI state via gh (read-only)
+eoctl pr route [id...]         # queue new review feedback into session inboxes
 eoctl session ls | get <id> [--json] | log <id> [--raw] [--follow] |
             done <id> | kill <id> | restore <id> | cleanup [--dry-run]
 eoctl send <id> --message <text>|--message-file <path>
@@ -86,6 +87,9 @@ through a shell. Follow-ups are queued, not steered into a running turn.
 - `pr refresh` runs `gh pr view <branch>` from each project root (falling back
   to `gh pr list --head`) and stores a snapshot in `~/.orchestrator-cli/pr/`.
   The board and `session get` read that snapshot; only `pr refresh` calls gh.
+- `pr route` queues unseen review/comment bodies from the last snapshot into
+  the owning session's inbox. Delivered note keys are kept in
+  `~/.orchestrator-cli/pr/<id>.routed.json` so reruns do not duplicate feedback.
 - Logs are capped at 1 MB per session and redact common token patterns.
 
 Config: `~/.orchestrator-cli/config.json` with `maxWorkers` (default 4, global
@@ -99,8 +103,8 @@ Exit codes: `0` ok, `1` usage, `2` prerequisite missing, `3` busy/cap reached,
 
 These are deliberate and will not work in slice 1:
 
-- No PR creation and no review-feedback routing. PR/CI state is observed
-  read-only with `pr refresh`.
+- No PR creation. PR/CI state is observed read-only with `pr refresh`; review
+  feedback is queued with `pr route`, never applied directly to a worktree.
 - No planning agent that splits an outcome into workers.
 - No `needs-you` detection. Harness questions and permission denials are
   fail-safe (auto-denied/cancelled) and visible only in `session log --raw`.
@@ -142,8 +146,16 @@ sessions. Missing `gh` exits 2.
 Snapshots live in `~/.orchestrator-cli/pr/<id>.json` and include check counts,
 review decision, and redacted review/comment bodies. `board`, `board --json`,
 and `session get` show the last snapshot without calling gh, so PR data stays
-stale until you refresh. `board --watch` does not auto-refresh. Routing review
-comments back into session inboxes is a later slice.
+stale until you refresh. `board --watch` does not auto-refresh.
+
+`eoctl pr route [id...]` reads the last snapshot and queues one grouped message
+per session containing every review or comment body not yet routed. Notes are
+identified by GitHub id (falling back to a content hash), so reruns are
+idempotent and later refreshes queue only genuinely new feedback. With no ids
+it routes all active sessions that have a snapshot; empty bodies, done sessions,
+and sessions without snapshots are skipped with a reason. Routing makes no gh
+calls and does not change lanes. A crash between writing the inbox message and
+the routed-key file can duplicate a message, never lose one.
 
 ## Development
 
@@ -157,4 +169,6 @@ own worktree, with the source repo untouched. Slice 2 was verified with a real
 PTY run: a follow-up typed in watch mode landed as a new worker commit, and the
 cursor was restored on quit. Slice 3a was verified with six fake-`gh` integration
 tests covering found/no-PR/failing/fallback observations, argv-only branch
-passing, redaction, and zero gh calls from board or `session get`.
+passing, redaction, and zero gh calls from board or `session get`. Slice 3b was
+verified with three fake-`gh` tests covering grouped delivery, idempotency,
+new-note-only routing, hash fallback, and runner delivery of queued feedback.

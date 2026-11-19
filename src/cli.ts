@@ -7,6 +7,7 @@ import { checkHarness } from './adapters.js'
 import { buildEntries, boardJson, formatPr, renderBoard } from './board.js'
 import { isHarness, loadConfig } from './config.js'
 import { errorSnapshot, observePr } from './gh.js'
+import { routePrFeedback } from './route.js'
 import { CliError } from './errors.js'
 import { branchExists, createWorktree, removeWorktree, repoRoot, uncommittedCount } from './git.js'
 import { newHarnessSessionId, newSessionId, projectIdFor, sessionSlug } from './ids.js'
@@ -222,6 +223,30 @@ prCommand
           snapshot.state === 'error'
             ? `${record.id}  error  ${snapshot.error ?? ''}`.trimEnd()
             : `${record.id}  ${snapshot.state}  ${summary}  ${snapshot.url ?? ''}`.trimEnd(),
+        )
+      }
+    }),
+  )
+
+prCommand
+  .command('route')
+  .description('Queue new PR review feedback into session inboxes')
+  .argument('[id...]')
+  .action(
+    action(async (ids: string[]) => {
+      const records = ids.length
+        ? await Promise.all(ids.map((id) => getSession(id)))
+        : (await listSessions()).filter((record) => record.laneOverride !== 'done' && !record.worktreeRemoved)
+      if (!records.length) {
+        console.log('No sessions to route')
+        return
+      }
+      for (const record of records) {
+        const result = await routePrFeedback(record.id)
+        console.log(
+          result.reason
+            ? `${record.id}  skipped: ${result.reason}`
+            : `${record.id}  queued ${result.queued}  already-routed ${result.skipped}`,
         )
       }
     }),

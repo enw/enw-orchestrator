@@ -94,6 +94,12 @@ function checkSummary(value: unknown): PrCheckSummary {
   return summary
 }
 
+function noteId(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length) return sanitizePrText(value, 100)
+  if (typeof value === 'number') return String(value)
+  return undefined
+}
+
 function authorLogin(value: unknown): string {
   return isRecord(value) && typeof value.login === 'string' ? sanitizePrText(value.login, 100) || 'unknown' : 'unknown'
 }
@@ -101,6 +107,7 @@ function authorLogin(value: unknown): string {
 function reviewNotes(value: unknown): PrNote[] {
   if (!Array.isArray(value)) return []
   return value.filter(isRecord).map((item) => ({
+    id: noteId(item.id),
     at: sanitizePrText(item.submittedAt, 50),
     author: authorLogin(item.author),
     body: sanitizePrText(item.body),
@@ -114,6 +121,7 @@ function reviewNotes(value: unknown): PrNote[] {
 function commentNotes(value: unknown): PrNote[] {
   if (!Array.isArray(value)) return []
   return value.filter(isRecord).map((item) => ({
+    id: noteId(item.id),
     at: sanitizePrText(item.createdAt, 50),
     author: authorLogin(item.author),
     body: sanitizePrText(item.body),
